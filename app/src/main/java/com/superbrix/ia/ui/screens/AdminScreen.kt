@@ -62,6 +62,32 @@ fun AdminScreen(
                 .padding(padding)
                 .padding(16.dp)
         ) {
+            val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = { uriHandler.openUri("https://docs.google.com/spreadsheets/d/1okZRQ37KSMZ497iIltWPRjC7SrxYiLPc5iT28I3QXEo/edit?usp=sharing") },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F9D58)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Ver Base de Datos", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+                Button(
+                    onClick = { uriHandler.openUri("https://datastudio.google.com/reporting/7917f5be-a89a-40a1-87a4-aef50f1b42f8") },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4285F4)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Ver Dashboard", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             Text(
                 text = "Operarios Registrados",
                 fontSize = 20.sp,
