@@ -226,7 +226,7 @@ class EventoViewModel : ViewModel() {
                 Ejemplos de clasificación:
                 - "se paró la máquina por un ruido extraño" -> Falla Técnica / Mantenimiento
                 - "me corté el dedo" -> Salud y Seguridad (Accidentes)
-                - "voy al baño" -> Otros / Novedad Excepcional
+                - "voy al baño" o "se fue la luz" -> Otros / Novedad Excepcional
                 - "estoy esperando la broca" -> Espera de Materiales / Logística
 
                 Responde ÚNICAMENTE un bloque JSON válido con este formato (sin markdown):
@@ -270,7 +270,7 @@ class EventoViewModel : ViewModel() {
             lower.contains("inspector") || lower.contains("calidad") || lower.contains("planos") -> IACategorias.CALIDAD
             lower.contains("jefe") || lower.contains("supervisor") || lower.contains("instruccion") -> IACategorias.COORDINACION
             lower.contains("accidente") || lower.contains("corte") || lower.contains("sangre") || lower.contains("salud") -> IACategorias.SALUD_SEGURIDAD
-            lower.contains("baño") || lower.contains("personal") || lower.contains("otro") -> IACategorias.OTROS
+            lower.contains("baño") || lower.contains("personal") || lower.contains("otro") || lower.contains("luz") || lower.contains("energía") || lower.contains("energia") -> IACategorias.OTROS
             else -> IACategorias.FALLA_TECNICA
         }
 
