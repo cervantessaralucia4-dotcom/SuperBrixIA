@@ -100,6 +100,7 @@ class EventoViewModel : ViewModel() {
                         horaFin = horaActual,
                         duracionMinutos = duracionMinutosCalculada,
                         duracionSegundos = duracionSegundosCalculada,
+                        tipoEvento = "CIERRE_EVENTO",
                         descripcion = "Cierre de ${lastEvent.categoria} (${duracionMinutosCalculada}m ${duracionSegundosCalculada}s)"
                     )
                     enviarAGoogleSheets(completedEvent)
@@ -167,6 +168,7 @@ class EventoViewModel : ViewModel() {
                         horaFin = horaActual,
                         duracionMinutos = duracionMinutosCalculada,
                         duracionSegundos = duracionSegundosCalculada,
+                        tipoEvento = "CIERRE_EVENTO",
                         descripcion = "Cierre de ${lastEvent.categoria} (${duracionMinutosCalculada}m ${duracionSegundosCalculada}s)"
                     )
                     enviarAGoogleSheets(completedEvent)
