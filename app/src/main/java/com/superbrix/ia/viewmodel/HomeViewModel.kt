@@ -43,8 +43,8 @@ class HomeViewModel : ViewModel() {
 
     private val _operariosRegistrados = MutableStateFlow(
         listOf(
-            Operario(id = "1", nombre = "Juan Pérez", codigo = "OP-100", rol = "Operario", area = "CNC"),
-            Operario(id = "2", nombre = "Sara Gómez", codigo = "OP-101", rol = "Operario", area = "Ensamble 1")
+            Operario(id = "1", nombre = "Juan Pérez", codigo = "COD-100", rol = "Operario", area = "CNC"),
+            Operario(id = "2", nombre = "Sara Gómez", codigo = "COD-101", rol = "Operario", area = "Ensamble 1")
         )
     )
     val operariosRegistrados: StateFlow<List<Operario>> = _operariosRegistrados.asStateFlow()

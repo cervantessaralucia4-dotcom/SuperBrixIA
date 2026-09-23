@@ -144,6 +144,7 @@ fun AdminScreen(
 
         if (showDialog) {
             OperarioDialog(
+                operarios = operarios,
                 operarioToEdit = operarioToEdit,
                 onDismiss = { showDialog = false },
                 onConfirm = { id, nombre, codigo, area ->
@@ -162,6 +163,7 @@ fun AdminScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OperarioDialog(
+    operarios: List<Operario>,
     operarioToEdit: Operario?,
     onDismiss: () -> Unit,
     onConfirm: (String?, String, String, String) -> Unit
@@ -171,6 +173,7 @@ fun OperarioDialog(
     var area by remember { mutableStateOf(operarioToEdit?.area ?: "CNC") }
     val areas = listOf("CNC", "Ensamble 1", "Ensamble 2", "Pintura")
     var expanded by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     val isEditing = operarioToEdit != null
 
@@ -215,7 +218,12 @@ fun OperarioDialog(
         confirmButton = {
             Button(onClick = {
                 if (nombre.isNotBlank() && codigo.isNotBlank()) {
-                    onConfirm(operarioToEdit?.id, nombre, codigo, area)
+                    val codeExists = operarios.any { it.codigo.equals(codigo, ignoreCase = true) && it.id != operarioToEdit?.id }
+                    if (codeExists) {
+                        android.widget.Toast.makeText(context, "Ese código ya está registrado por otro operario", android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        onConfirm(operarioToEdit?.id, nombre, codigo, area)
+                    }
                 }
             }) {
                 Text("Guardar")
