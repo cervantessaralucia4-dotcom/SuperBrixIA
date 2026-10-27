@@ -1,10 +1,17 @@
 package com.superbrix.ia.viewmodel
 
+import android.app.Application
 import android.util.Log
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.superbrix.ia.core.ai.FallbackClassifier
+import com.superbrix.ia.core.notifications.PlantNotificationHelper
 import com.superbrix.ia.data.model.Evento
 import com.superbrix.ia.data.model.IACategorias
+import com.superbrix.ia.data.model.SyncStatus
+import com.superbrix.ia.data.remote.SuperBrixApiClient
+import com.superbrix.ia.data.remote.models.ClasificacionRequest
+import com.superbrix.ia.data.repository.EventoRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,15 +19,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -29,24 +27,34 @@ data class EventoUiState(
     val eventosList: List<Evento> = emptyList(),
     val isAnalyzing: Boolean = false,
     val ultimoEventoReportado: Evento? = null,
-    val eventoSeleccionado: Evento? = null
+    val eventoSeleccionado: Evento? = null,
+    val alertaSeguridadActiva: Boolean = false,
+    val errorMessage: String? = null
 )
 
-class EventoViewModel : ViewModel() {
+/**
+ * ViewModel central de Eventos, Reportes y Auditoría de BRIX360.
+ *
+ * Implementa persistencia local en SQLite (EventoRepository),
+ * clasificación con Backend FastAPI y Respaldo Heurístico de Alta Prioridad
+ * a Salud y Seguridad, y notificaciones industriales push inmediatas.
+ */
+class EventoViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val eventoRepository = EventoRepository(application)
 
     private val _uiState = MutableStateFlow(EventoUiState())
     val uiState: StateFlow<EventoUiState> = _uiState.asStateFlow()
 
-    // CONSTANTES DE CONFIGURACIÓN
-    private val GEMINI_API_KEY = "TU_API_KEY_AQUI"
-    private val GOOGLE_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyEP7gj1XO2Wysa-0gVJLH46w-OH5vEnzGp6wspTzi2GKR2G18UhfB44SilHQQwTym_/exec"
-
     init {
-        loadMockEvents()
+        cargarHistorialLocal()
     }
 
-    private fun loadMockEvents() {
-        _uiState.update { it.copy(eventosList = emptyList()) }
+    fun cargarHistorialLocal() {
+        viewModelScope.launch {
+            val guardados = eventoRepository.getAllEventos()
+            _uiState.update { it.copy(eventosList = guardados) }
+        }
     }
 
     fun reportarNovedad(
@@ -54,25 +62,31 @@ class EventoViewModel : ViewModel() {
         ordenCodigo: String = "OP-001",
         maquinaNombre: String = "Fresadora 01",
         operarioNombre: String = "Sara",
+        fotoUri: String? = null,
         onAnalyzed: () -> Unit
     ) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isAnalyzing = true) }
+            _uiState.update { it.copy(isAnalyzing = true, errorMessage = null) }
 
             val horaActual = getCurrentTime()
             val (duracionMinutosCalculada, duracionSegundosCalculada) = calcularDuraciones(horaActual)
             val finalDescripcion = if (descripcionText.isBlank()) "Paré la máquina" else descripcionText
 
-            // 1. Llamada a Gemini en IO Thread
-            val iaResult = withContext(Dispatchers.IO) {
-                clasificarConGemini(finalDescripcion)
+            // 1. Clasificación con Backend / Fallback heurístico seguro
+            val resultado = withContext(Dispatchers.IO) {
+                clasificarNovedadConBackend(finalDescripcion)
             }
 
-            val rawCat = iaResult.optString("categoria", IACategorias.FALLA_TECNICA)
-            val categoriaNormalizada = IACategorias.TODAS.find { 
-                it.equals(rawCat, ignoreCase = true) || 
-                it.replace("ó", "o").replace("í", "i").equals(rawCat.replace("ó", "o").replace("í", "i"), ignoreCase = true) 
-            } ?: rawCat
+            val esSeguridad = resultado.categoria == IACategorias.SALUD_SEGURIDAD
+
+            // Si es un evento crítico de seguridad, emitir alerta de planta inmediata
+            if (esSeguridad) {
+                PlantNotificationHelper.showSafetyAlert(
+                    getApplication(),
+                    "¡ALERTA DE SEGURIDAD EN PLANTA!",
+                    "Operario $operarioNombre reportó en $maquinaNombre: ${resultado.descripcion}"
+                )
+            }
 
             val nuevoEvento = Evento(
                 id = "EVT-${(1000..9999).random()}",
@@ -83,52 +97,93 @@ class EventoViewModel : ViewModel() {
                 ordenProduccion = ordenCodigo,
                 maquina = maquinaNombre,
                 tipoEvento = "Interrupción",
-                descripcion = iaResult.optString("descripcion", finalDescripcion),
-                categoria = categoriaNormalizada,
-                duracionMinutos = 0, // Inicia con 0, se actualizará al reanudar
+                descripcion = resultado.descripcion,
+                categoria = resultado.categoria,
+                categoriaOriginalIA = resultado.categoria,
+                categoriaCorregida = false,
+                duracionMinutos = 0,
                 duracionSegundos = 0,
-                confianzaIA = "${(iaResult.optDouble("confianza", 0.95) * 100).toInt()}%"
+                confianzaIA = "${(resultado.confianza * 100).toInt()}%",
+                syncStatus = SyncStatus.PENDIENTE,
+                fotoUri = fotoUri,
+                esNovedadSeguridad = esSeguridad
             )
 
-            // 2. Enviar a Google Sheets en IO Thread
-            withContext(Dispatchers.IO) {
-                // Primero, si hubo un evento anterior, enviamos su finalización con la duración real
-                val lastEvent = _uiState.value.eventosList.firstOrNull()
-                if (lastEvent != null && (duracionMinutosCalculada > 0 || duracionSegundosCalculada > 0)) {
-                    val completedEvent = lastEvent.copy(
-                        id = "EVT-FIN-${lastEvent.id}",
-                        horaFin = horaActual,
-                        duracionMinutos = duracionMinutosCalculada,
-                        duracionSegundos = duracionSegundosCalculada,
-                        tipoEvento = "CIERRE_EVENTO",
-                        descripcion = "Cierre de ${lastEvent.categoria} (${duracionMinutosCalculada}m ${duracionSegundosCalculada}s)"
-                    )
-                    enviarAGoogleSheets(completedEvent)
-                }
-
-                // Luego enviamos el nuevo evento que acaba de empezar
-                enviarAGoogleSheets(nuevoEvento)
+            // 2. Persistencia en SQLite local y encolado en WorkManager
+            val lastEvent = _uiState.value.eventosList.firstOrNull()
+            if (lastEvent != null && (duracionMinutosCalculada > 0 || duracionSegundosCalculada > 0)) {
+                val completedEvent = lastEvent.copy(
+                    horaFin = horaActual,
+                    duracionMinutos = duracionMinutosCalculada,
+                    duracionSegundos = duracionSegundosCalculada
+                )
+                eventoRepository.updateEvento(completedEvent)
             }
+            eventoRepository.insertEvento(nuevoEvento)
 
-            // 3. Actualizar UI
+            // 3. Actualizar UI con la lista actualizada desde base de datos local
+            val listaActualizada = eventoRepository.getAllEventos()
+
             _uiState.update { state ->
-                val updatedList = state.eventosList.toMutableList()
-                if (updatedList.isNotEmpty() && (duracionMinutosCalculada > 0 || duracionSegundosCalculada > 0)) {
-                    updatedList[0] = updatedList[0].copy(
-                        horaFin = horaActual,
-                        duracionMinutos = duracionMinutosCalculada,
-                        duracionSegundos = duracionSegundosCalculada
-                    )
-                }
                 state.copy(
                     isAnalyzing = false,
                     ultimoEventoReportado = nuevoEvento,
-                    eventosList = listOf(nuevoEvento) + updatedList
+                    alertaSeguridadActiva = esSeguridad,
+                    eventosList = listaActualizada
                 )
             }
 
             onAnalyzed()
         }
+    }
+
+    /**
+     * Permite al operario corregir la categoría inferida por la IA antes o después de guardar.
+     */
+    fun corregirCategoriaUltimoEvento(nuevaCategoria: String) {
+        viewModelScope.launch {
+            val ultimo = _uiState.value.ultimoEventoReportado ?: return@launch
+            val corregido = eventoRepository.corregirCategoria(ultimo.id, nuevaCategoria) ?: return@launch
+
+            if (nuevaCategoria == IACategorias.SALUD_SEGURIDAD) {
+                PlantNotificationHelper.showSafetyAlert(
+                    getApplication(),
+                    "¡ALERTA DE SEGURIDAD EN PLANTA!",
+                    "Categoría corregida a Salud y Seguridad: ${corregido.descripcion}"
+                )
+            }
+
+            val listaActualizada = eventoRepository.getAllEventos()
+
+            _uiState.update { state ->
+                state.copy(
+                    ultimoEventoReportado = corregido,
+                    eventosList = listaActualizada,
+                    alertaSeguridadActiva = (nuevaCategoria == IACategorias.SALUD_SEGURIDAD)
+                )
+            }
+        }
+    }
+
+    /**
+     * Permite anular un evento registrado con un motivo explícito.
+     */
+    fun anularEvento(eventoId: String, motivo: String) {
+        viewModelScope.launch {
+            val anulado = eventoRepository.anularEvento(eventoId, motivo)
+            val listaActualizada = eventoRepository.getAllEventos()
+
+            _uiState.update { state ->
+                state.copy(
+                    eventosList = listaActualizada,
+                    eventoSeleccionado = if (state.eventoSeleccionado?.id == eventoId) anulado else state.eventoSeleccionado
+                )
+            }
+        }
+    }
+
+    fun dismissAlertaSeguridad() {
+        _uiState.update { it.copy(alertaSeguridadActiva = false) }
     }
 
     fun reportarEventoDirecto(
@@ -154,194 +209,73 @@ class EventoViewModel : ViewModel() {
                 tipoEvento = tipoEvento,
                 descripcion = descripcion,
                 categoria = categoria,
-                duracionMinutos = 0, // Inicia con 0
+                categoriaOriginalIA = categoria,
+                duracionMinutos = 0,
                 duracionSegundos = 0,
-                confianzaIA = "100%"
+                confianzaIA = "100%",
+                syncStatus = SyncStatus.PENDIENTE
             )
 
-            withContext(Dispatchers.IO) {
-                // Si hubo un evento anterior, lo completamos
-                val lastEvent = _uiState.value.eventosList.firstOrNull()
-                if (lastEvent != null && (duracionMinutosCalculada > 0 || duracionSegundosCalculada > 0)) {
-                    val completedEvent = lastEvent.copy(
-                        id = "EVT-FIN-${lastEvent.id}",
-                        horaFin = horaActual,
-                        duracionMinutos = duracionMinutosCalculada,
-                        duracionSegundos = duracionSegundosCalculada,
-                        tipoEvento = "CIERRE_EVENTO",
-                        descripcion = "Cierre de ${lastEvent.categoria} (${duracionMinutosCalculada}m ${duracionSegundosCalculada}s)"
-                    )
-                    enviarAGoogleSheets(completedEvent)
-                }
-                
-                enviarAGoogleSheets(nuevoEvento)
+            val lastEvent = _uiState.value.eventosList.firstOrNull()
+            if (lastEvent != null && (duracionMinutosCalculada > 0 || duracionSegundosCalculada > 0)) {
+                val completedEvent = lastEvent.copy(
+                    horaFin = horaActual,
+                    duracionMinutos = duracionMinutosCalculada,
+                    duracionSegundos = duracionSegundosCalculada
+                )
+                eventoRepository.updateEvento(completedEvent)
             }
+            eventoRepository.insertEvento(nuevoEvento)
+
+            val listaActualizada = eventoRepository.getAllEventos()
 
             _uiState.update { state ->
-                val updatedList = state.eventosList.toMutableList()
-                if (updatedList.isNotEmpty() && (duracionMinutosCalculada > 0 || duracionSegundosCalculada > 0)) {
-                    updatedList[0] = updatedList[0].copy(
-                        horaFin = horaActual,
-                        duracionMinutos = duracionMinutosCalculada,
-                        duracionSegundos = duracionSegundosCalculada
-                    )
-                }
                 state.copy(
                     ultimoEventoReportado = nuevoEvento,
-                    eventosList = listOf(nuevoEvento) + updatedList
+                    eventosList = listaActualizada
                 )
             }
         }
     }
 
-    private fun clasificarConGemini(mensaje: String): JSONObject {
-        // PRESENTATION SAFEGUARD: Forzar la categorización correcta de inmediato
-        // Esto evita que Gemini se equivoque con errores de ortografía como "laluz"
-        val lowerText = mensaje.lowercase().replace(" ", "")
-        
-        if (lowerText.contains("luz") || lowerText.contains("energia") || lowerText.contains("energía")) {
-            return JSONObject().apply {
-                put("categoria", IACategorias.OTROS)
-                put("descripcion", mensaje)
-                put("confianza", 1.0)
-            }
-        }
-        if (lowerText.contains("accidente") || lowerText.contains("corte") || lowerText.contains("sangre") || lowerText.contains("salud") || lowerText.contains("dedo")) {
-            return JSONObject().apply {
-                put("categoria", IACategorias.SALUD_SEGURIDAD)
-                put("descripcion", mensaje)
-                put("confianza", 1.0)
-            }
-        }
-
-        try {
-            if (GEMINI_API_KEY == "TU_API_KEY_AQUI") {
-                return JSONObject().apply {
-                    put("categoria", IACategorias.LOGISTICA_MATERIALES)
-                    put("descripcion", mensaje)
-                    put("confianza", 0.95)
-                }
-            }
-
-            val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=$GEMINI_API_KEY")
-            val connection = url.openConnection() as HttpURLConnection
-            connection.requestMethod = "POST"
-            connection.setRequestProperty("Content-Type", "application/json")
-            connection.connectTimeout = 3000
-            connection.readTimeout = 4000
-            connection.doOutput = true
-
-            val prompt = """
-                Eres el clasificador de IA de planta industrial de SuperBrix.
-                Mensaje: "$mensaje"
-                Debes clasificarla en EXACTAMENTE UNA de estas 8 categorías:
-                1. Producción Activa
-                2. Alistamiento y Preparación (Setup)
-                3. Espera de Materiales / Logística
-                4. Falla Técnica / Mantenimiento
-                5. Calidad y Aprobación
-                6. Instrucciones / Coordinación
-                7. Salud y Seguridad (Accidentes)
-                8. Otros / Novedad Excepcional
-
-                Ejemplos de clasificación:
-                - "se paró la máquina por un ruido extraño" -> Falla Técnica / Mantenimiento
-                - "me corté el dedo" -> Salud y Seguridad (Accidentes)
-                - "voy al baño" o "se fue la luz" -> Otros / Novedad Excepcional
-                - "estoy esperando la broca" -> Espera de Materiales / Logística
-
-                Responde ÚNICAMENTE un bloque JSON válido con este formato (sin markdown):
-                {"categoria": "Nombre Exacto", "descripcion": "Explicación breve", "confianza": 0.95}
-            """.trimIndent()
-
-            val payload = JSONObject().apply {
-                put("contents", JSONArray().put(JSONObject().apply {
-                    put("parts", JSONArray().put(JSONObject().apply {
-                        put("text", prompt)
-                    }))
-                }))
-                put("generationConfig", JSONObject().apply {
-                    put("temperature", 0.1)
-                    put("responseMimeType", "application/json")
-                })
-            }
-
-            OutputStreamWriter(connection.outputStream).use { it.write(payload.toString()) }
-
-            if (connection.responseCode == 200) {
-                val responseString = connection.inputStream.bufferedReader().use { it.readText() }
-                val geminiResponse = JSONObject(responseString)
-                val text = geminiResponse.getJSONArray("candidates")
-                    .getJSONObject(0).getJSONObject("content").getJSONArray("parts")
-                    .getJSONObject(0).getString("text")
-                return JSONObject(text)
-            } else {
-                Log.e("GeminiError", "Status: ${connection.responseCode}")
-            }
-        } catch (e: Exception) {
-            Log.e("GeminiError", e.message ?: "Error desconocido")
-        }
-
-        // Smart local fallback
-        val lower = mensaje.lowercase()
-        val cat = when {
-            lower.contains("material") || lower.contains("broca") || lower.contains("insumo") -> IACategorias.LOGISTICA_MATERIALES
-            lower.contains("produccion") || lower.contains("inicio") -> IACategorias.PRODUCCION_ACTIVA
-            lower.contains("prepar") || lower.contains("setup") || lower.contains("ajuste") -> IACategorias.SETUP
-            lower.contains("inspector") || lower.contains("calidad") || lower.contains("planos") -> IACategorias.CALIDAD
-            lower.contains("jefe") || lower.contains("supervisor") || lower.contains("instruccion") -> IACategorias.COORDINACION
-            lower.contains("accidente") || lower.contains("corte") || lower.contains("sangre") || lower.contains("salud") -> IACategorias.SALUD_SEGURIDAD
-            lower.contains("baño") || lower.contains("personal") || lower.contains("otro") || lower.contains("luz") || lower.contains("energía") || lower.contains("energia") -> IACategorias.OTROS
-            else -> IACategorias.FALLA_TECNICA
-        }
-
-        return JSONObject().apply {
-            put("categoria", cat)
-            put("descripcion", mensaje)
-            put("confianza", 0.90)
+    fun sincronizarPendientes() {
+        eventoRepository.triggerSync()
+        // Refrescar estado local tras unos instantes
+        viewModelScope.launch {
+            cargarHistorialLocal()
         }
     }
 
-    private fun enviarAGoogleSheets(evento: Evento) {
-        if (GOOGLE_APPS_SCRIPT_URL == "TU_URL_DE_APPS_SCRIPT_AQUI") return
+    fun limpiarHistorial() {
+        viewModelScope.launch {
+            eventoRepository.clearAllEventos()
+            _uiState.update { it.copy(eventosList = emptyList(), ultimoEventoReportado = null, eventoSeleccionado = null) }
+        }
+    }
 
-        try {
-            val payload = JSONObject().apply {
-                put("id", evento.id)
-                put("fecha", evento.fecha)
-                put("hora_inicio", evento.horaInicio)
-                put("hora_fin", evento.horaFin ?: "")
-                put("operario_id", evento.operario)
-                put("orden_id", evento.ordenProduccion)
-                put("maquina_id", evento.maquina)
-                put("tipo_evento", evento.tipoEvento)
-                put("mensaje", evento.descripcion)
-                put("categoria", evento.categoria)
-                put("descripcion", evento.descripcion)
-                put("confianza_ia", evento.confianzaIA)
-                put("duracion_minutos", evento.duracionMinutos)
-                put("duracion_segundos", evento.duracionSegundos)
-                put("estado", "PROCESADO")
+    /**
+     * Clasifica el mensaje mediante el Backend FastAPI seguro (sin exponer API key en la app).
+     * Si el backend no responde o hay fallo de red, recurre al clasificador heurístico
+     * con estricta prioridad a Salud y Seguridad.
+     */
+    private suspend fun clasificarNovedadConBackend(mensaje: String): com.superbrix.ia.core.ai.ClasificacionResult {
+        return try {
+            val response = SuperBrixApiClient.apiService.clasificarNovedad(ClasificacionRequest(mensaje))
+            if (response.isSuccessful && response.body() != null) {
+                val body = response.body()!!
+                com.superbrix.ia.core.ai.ClasificacionResult(
+                    categoria = body.categoria,
+                    descripcion = body.descripcion,
+                    confianza = body.confianza,
+                    esFallback = false
+                )
+            } else {
+                Log.w("IA_Backend", "Fallo HTTP ${response.code()}, usando clasificador de respaldo")
+                FallbackClassifier.clasificar(mensaje)
             }
-
-            val client = OkHttpClient.Builder()
-                .followRedirects(true)
-                .followSslRedirects(true)
-                .build()
-
-            val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
-            val requestBody = payload.toString().toRequestBody(mediaType)
-
-            val request = Request.Builder()
-                .url(GOOGLE_APPS_SCRIPT_URL)
-                .post(requestBody)
-                .build()
-
-            val response = client.newCall(request).execute()
-            val responseString = response.body?.string()
-            Log.d("Sheets", "Status Code: ${response.code}, Response: $responseString")
         } catch (e: Exception) {
-            Log.e("SheetsError", e.message ?: "Error enviando a Sheets con OkHttp")
+            Log.e("IA_Backend", "Excepción conectando al backend: ${e.message}, usando fallback")
+            FallbackClassifier.clasificar(mensaje)
         }
     }
 

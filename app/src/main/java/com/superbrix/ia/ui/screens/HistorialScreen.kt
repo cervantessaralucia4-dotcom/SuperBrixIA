@@ -1,48 +1,50 @@
 package com.superbrix.ia.ui.screens
 
+import android.content.Context
+import android.content.Intent
+import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
+import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.superbrix.ia.data.model.Evento
 import com.superbrix.ia.data.model.IACategorias
+import com.superbrix.ia.ui.components.EmptyStateView
 import com.superbrix.ia.ui.components.EventCard
-import com.superbrix.ia.ui.theme.IndustrialGrayBackground
-import com.superbrix.ia.ui.theme.SuperBrixNavyPrimary
+import com.superbrix.ia.ui.theme.*
 
+/**
+ * Pantalla de Historial y Métricas de Planta para BRIX360.
+ *
+ * Características:
+ * - Tarjetas de resumen OEE (Órdenes, Tiempo de Producción, Tiempo Muerto).
+ * - Gráfico comparativo de distribución por categoría.
+ * - Filtros por categoría y estado.
+ * - Exportación y compartición de reporte de turno en formato CSV estándar.
+ * - Línea de tiempo visual sin emojis.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistorialScreen(
@@ -50,136 +52,262 @@ fun HistorialScreen(
     onEventClick: (Evento) -> Unit,
     onBackClick: () -> Unit
 ) {
-    val numeroOrdenes = eventosList.map { it.ordenProduccion }.distinct().count { it.isNotBlank() && it != "No aplica" }
-    
-    val tiempoProduccionMin = eventosList.filter { it.categoria == IACategorias.PRODUCCION_ACTIVA }.sumOf { it.duracionMinutos }
-    val tiempoProduccionSeg = eventosList.filter { it.categoria == IACategorias.PRODUCCION_ACTIVA }.sumOf { it.duracionSegundos }
-    val tpTotalMin = tiempoProduccionMin + (tiempoProduccionSeg / 60)
-    val tpTotalSeg = tiempoProduccionSeg % 60
+    val context = LocalContext.current
+    var selectedCategoryFilter by remember { mutableStateOf("TODAS") }
 
-    val tiempoMuertoMin = eventosList.filter { it.categoria == IACategorias.FALLA_TECNICA || it.categoria == IACategorias.LOGISTICA_MATERIALES }.sumOf { it.duracionMinutos }
-    val tiempoMuertoSeg = eventosList.filter { it.categoria == IACategorias.FALLA_TECNICA || it.categoria == IACategorias.LOGISTICA_MATERIALES }.sumOf { it.duracionSegundos }
-    val tmTotalMin = tiempoMuertoMin + (tiempoMuertoSeg / 60)
-    val tmTotalSeg = tiempoMuertoSeg % 60
-    
+    // Métricas OEE
+    val numeroOrdenes = remember(eventosList) {
+        eventosList.map { it.ordenProduccion }.distinct().count { it.isNotBlank() && it != "No aplica" }
+    }
+
+    val tpTotalSecs = remember(eventosList) {
+        eventosList.filter { it.categoria == IACategorias.PRODUCCION_ACTIVA }
+            .sumOf { (it.duracionMinutos * 60) + it.duracionSegundos }
+    }
+    val tpMin = tpTotalSecs / 60
+    val tpSec = tpTotalSecs % 60
+
+    val tmTotalSecs = remember(eventosList) {
+        eventosList.filter {
+            it.categoria == IACategorias.FALLA_TECNICA ||
+            it.categoria == IACategorias.LOGISTICA_MATERIALES ||
+            it.categoria == IACategorias.SALUD_SEGURIDAD
+        }.sumOf { (it.duracionMinutos * 60) + it.duracionSegundos }
+    }
+    val tmMin = tmTotalSecs / 60
+    val tmSec = tmTotalSecs % 60
+
+    // Filtro activo
+    val filteredList = remember(eventosList, selectedCategoryFilter) {
+        if (selectedCategoryFilter == "TODAS") eventosList
+        else eventosList.filter { it.categoria.equals(selectedCategoryFilter, ignoreCase = true) }
+    }
+
+    fun exportarTurnoACSV() {
+        if (eventosList.isEmpty()) {
+            Toast.makeText(context, "No hay eventos para exportar en este turno", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val csvBuilder = StringBuilder()
+        csvBuilder.append("ID,Fecha,HoraInicio,HoraFin,Operario,OrdenProduccion,Maquina,TipoEvento,Categoria,DuracionMin,DuracionSeg,ConfianzaIA,CategoriaCorregida,Anulado,Descripcion\n")
+
+        eventosList.forEach { ev ->
+            val cleanDesc = ev.descripcion.replace("\"", "\"\"").replace("\n", " ")
+            csvBuilder.append("\"${ev.id}\",\"${ev.fecha}\",\"${ev.horaInicio}\",\"${ev.horaFin ?: ""}\",\"${ev.operario}\",\"${ev.ordenProduccion}\",\"${ev.maquina}\",\"${ev.tipoEvento}\",\"${ev.categoria}\",${ev.duracionMinutos},${ev.duracionSegundos},\"${ev.confianzaIA}\",${ev.categoriaCorregida},${ev.anulado},\"$cleanDesc\"\n")
+        }
+
+        val sendIntent = Intent().apply {
+            action = Intent.ACTION_SEND
+            putExtra(Intent.EXTRA_SUBJECT, "Reporte_Turno_BRIX360_${eventosList.firstOrNull()?.fecha ?: "Hoy"}.csv")
+            putExtra(Intent.EXTRA_TEXT, csvBuilder.toString())
+            type = "text/csv"
+        }
+        val shareIntent = Intent.createChooser(sendIntent, "Exportar y compartir reporte de turno")
+        context.startActivity(shareIntent)
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Text(
                         "Historial y Estadísticas",
+                        style = Typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = BrixTextPrimary
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Volver",
-                            tint = Color.White
+                            tint = BrixTextPrimary
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = SuperBrixNavyPrimary)
+                actions = {
+                    IconButton(onClick = { exportarTurnoACSV() }) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Exportar CSV",
+                            tint = BrixCyanAccent
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = BrixDarkBackground)
             )
         }
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(IndustrialGrayBackground)
+                .background(BrixDarkBackground)
                 .padding(innerPadding)
-                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .padding(horizontal = 20.dp, vertical = 10.dp)
         ) {
-            
-            // Dashboard Estadísticas
+            // Dashboard de Estadísticas OEE
             Card(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(2.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                shape = CardShape,
+                colors = CardDefaults.cardColors(containerColor = BrixDarkSurface),
+                border = BorderStroke(1.5.dp, BrixDarkBorder)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(text = "Órdenes", fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-                        Text(text = "$numeroOrdenes", fontSize = 24.sp, fontWeight = FontWeight.Black, color = SuperBrixNavyPrimary)
+                    // Órdenes
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(text = "ÓRDENES", style = Typography.labelSmall, color = BrixTextSecondary, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(text = "$numeroOrdenes", style = Typography.headlineMedium, fontWeight = FontWeight.Black, color = BrixCyanAccent)
                     }
-                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(text = "Producción", fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-                        Text(text = "${tpTotalMin}m ${tpTotalSeg}s", fontSize = 18.sp, fontWeight = FontWeight.Black, color = Color(0xFF2E7D32))
+
+                    Box(modifier = Modifier.width(1.dp).height(44.dp).background(BrixDarkBorder))
+
+                    // Producción
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(text = "PRODUCCIÓN", style = Typography.labelSmall, color = BrixTextSecondary, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(text = "${tpMin}m ${tpSec}s", style = Typography.titleMedium, fontWeight = FontWeight.Black, color = BrixStateProducing)
                     }
-                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(text = "T. Muerto", fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-                        Text(text = "${tmTotalMin}m ${tmTotalSeg}s", fontSize = 18.sp, fontWeight = FontWeight.Black, color = Color(0xFFC62828))
+
+                    Box(modifier = Modifier.width(1.dp).height(44.dp).background(BrixDarkBorder))
+
+                    // Tiempo Muerto
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(text = "T. MUERTO", style = Typography.labelSmall, color = BrixTextSecondary, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(text = "${tmMin}m ${tmSec}s", style = Typography.titleMedium, fontWeight = FontWeight.Black, color = BrixStateCritical)
                     }
                 }
             }
-            
-            Text(
-                text = "LÍNEA DE TIEMPO DE EVENTOS",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.Gray,
-                letterSpacing = 1.sp
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            if (eventosList.isEmpty()) {
+
+            // Barra de Filtros Horizontales
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(bottom = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val filterCategories = listOf("TODAS") + IACategorias.TODAS
+                filterCategories.forEach { cat ->
+                    val isSelected = selectedCategoryFilter == cat
+                    Surface(
+                        modifier = Modifier.clickable { selectedCategoryFilter = cat },
+                        shape = ChipShape,
+                        color = if (isSelected) BrixVioletPrimary else BrixDarkSurface,
+                        border = BorderStroke(1.dp, if (isSelected) BrixCyanAccent else BrixDarkBorder)
+                    ) {
+                        Text(
+                            text = if (cat == "TODAS") "Todas las categorías" else cat,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) Color.White else BrixTextSecondary,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                        )
+                    }
+                }
+            }
+
+            // Título de Sección
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "LÍNEA DE TIEMPO OPERATIVA (${filteredList.size})",
+                    style = Typography.labelSmall,
+                    color = BrixTextSecondary,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+                Text(
+                    text = "Exportar CSV ↑",
+                    style = Typography.labelSmall,
+                    color = BrixCyanAccent,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable { exportarTurnoACSV() }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Lista o Estado Vacío
+            if (filteredList.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "No hay eventos registrados en este turno.",
-                        color = Color.Gray
+                    EmptyStateView(
+                        title = "Sin eventos para este filtro",
+                        message = "No se encontraron interrupciones ni labores registradas con la categoría seleccionada.",
+                        icon = Icons.Default.Assessment
                     )
                 }
             } else {
-                LazyColumn {
-                    itemsIndexed(eventosList) { index, evento ->
-                        
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    itemsIndexed(filteredList, key = { _, ev -> ev.id }) { index, evento ->
                         val dotColor = when (evento.categoria) {
-                            IACategorias.PRODUCCION_ACTIVA -> Color(0xFF2E7D32)
-                            IACategorias.SETUP -> Color(0xFF7B1FA2)
-                            IACategorias.LOGISTICA_MATERIALES -> Color(0xFFE65100)
-                            IACategorias.FALLA_TECNICA -> Color(0xFFC62828)
-                            IACategorias.CALIDAD -> Color(0xFF00695C)
-                            IACategorias.COORDINACION -> Color(0xFF283593)
-                            IACategorias.SALUD_SEGURIDAD -> Color(0xFFD32F2F)
-                            IACategorias.OTROS -> Color(0xFF607D8B)
-                            else -> Color(0xFF475569)
+                            IACategorias.PRODUCCION_ACTIVA -> BrixStateProducing
+                            IACategorias.SETUP -> Color(0xFFA855F7)
+                            IACategorias.LOGISTICA_MATERIALES -> BrixOrangeAction
+                            IACategorias.FALLA_TECNICA -> BrixStateCritical
+                            IACategorias.CALIDAD -> Color(0xFF14B8A6)
+                            IACategorias.COORDINACION -> Color(0xFF6366F1)
+                            IACategorias.SALUD_SEGURIDAD -> Color(0xFFEF4444)
+                            else -> Color(0xFF94A3B8)
                         }
-                        
+
                         Row(modifier = Modifier.height(IntrinsicSize.Min)) {
-                            // Timeline visual
+                            // Timeline con conector vertical
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.width(32.dp).fillMaxHeight()
+                                modifier = Modifier
+                                    .width(28.dp)
+                                    .fillMaxHeight()
                             ) {
                                 Spacer(modifier = Modifier.height(24.dp))
                                 Box(
                                     modifier = Modifier
-                                        .size(16.dp)
+                                        .size(14.dp)
                                         .clip(CircleShape)
                                         .background(dotColor)
                                 )
-                                if (index != eventosList.lastIndex) {
-                                    Spacer(modifier = Modifier.height(8.dp))
+                                if (index != filteredList.lastIndex) {
+                                    Spacer(modifier = Modifier.height(6.dp))
                                     Box(
                                         modifier = Modifier
                                             .width(2.dp)
                                             .weight(1f)
-                                            .background(Color.LightGray)
+                                            .background(BrixDarkBorder)
                                     )
                                 }
                             }
-                            
+
                             Spacer(modifier = Modifier.width(8.dp))
-                            
-                            // Content
-                            Box(modifier = Modifier.weight(1f).padding(bottom = 8.dp)) {
+
+                            Box(modifier = Modifier.weight(1f).padding(bottom = 6.dp)) {
                                 EventCard(
                                     evento = evento,
                                     onClick = { onEventClick(evento) }

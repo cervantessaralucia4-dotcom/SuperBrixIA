@@ -1,58 +1,91 @@
 package com.superbrix.ia.ui.screens
 
+import android.Manifest
+import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Brightness4
+import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.superbrix.ia.ui.theme.IndustrialGrayBackground
-import com.superbrix.ia.ui.theme.SuperBrixNavyPrimary
+import com.superbrix.ia.core.config.AppConfig
+import com.superbrix.ia.core.network.NetworkMonitor
+import com.superbrix.ia.core.notifications.PlantNotificationHelper
+import com.superbrix.ia.data.local.PreferencesManager
+import com.superbrix.ia.ui.components.ConfirmDialog
+import com.superbrix.ia.ui.components.PrimaryButton
+import com.superbrix.ia.ui.components.SecondaryButton
+import com.superbrix.ia.ui.theme.*
+import kotlinx.coroutines.launch
 
+/**
+ * Pantalla de Configuración Industrial de BRIX360.
+ *
+ * Características:
+ * - Monitor en tiempo real de conectividad de red de planta (sin estados falsos fijos).
+ * - Persistencia real de preferencias en DataStore (Tema oscuro, Notificaciones, Reconocimiento de voz).
+ * - Cola de eventos pendientes con botón de sincronización manual forzada.
+ * - Diálogo de confirmación para restablecer datos.
+ * - Cero emojis en la interfaz.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConfiguracionScreen(
+    pendingSyncCount: Int = 0,
+    onManualSyncClick: () -> Unit = {},
+    onResetDataClick: () -> Unit = {},
     onBackClick: () -> Unit
 ) {
     val context = LocalContext.current
-    var notificacionesEnabled by remember { mutableStateOf(true) }
-    var vozAsistidaEnabled by remember { mutableStateOf(true) }
-    var modoOscuroEnabled by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    val prefsManager = remember { PreferencesManager(context) }
+    val networkMonitor = remember { NetworkMonitor(context) }
+
+    // Estados reactivos persistidos
+    val isDarkMode by prefsManager.isDarkModeFlow.collectAsState(initial = true)
+    val notificationsEnabled by prefsManager.notificationsEnabledFlow.collectAsState(initial = true)
+    val voiceEnabled by prefsManager.voiceEnabledFlow.collectAsState(initial = true)
+
+    // Estado reactivo de red real
+    val isOnline by networkMonitor.isOnlineFlow.collectAsState(initial = networkMonitor.isOnline())
+
+    var showResetConfirmDialog by remember { mutableStateOf(false) }
+
+    // Permiso de notificaciones en Android 13+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        coroutineScope.launch {
+            prefsManager.setNotificationsEnabled(isGranted)
+        }
+        if (isGranted) {
+            PlantNotificationHelper.createNotificationChannel(context)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -60,173 +93,346 @@ fun ConfiguracionScreen(
                 title = {
                     Text(
                         "Configuración",
+                        style = Typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = BrixTextPrimary
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Volver",
-                            tint = Color.White
+                            tint = BrixTextPrimary
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = SuperBrixNavyPrimary)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = BrixDarkBackground)
             )
         }
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(IndustrialGrayBackground)
-                .padding(innerPadding)
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState())
+                .background(BrixDarkBackground)
+                .padding(innerPadding),
+            contentAlignment = Alignment.TopCenter
         ) {
-            // Section 1: Preferencias
-            Text(
-                text = "PREFERENCIAS DE INTERFAZ",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.Gray,
-                letterSpacing = 1.sp
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Notificaciones de Planta",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = SuperBrixNavyPrimary
-                            )
-                            Text(
-                                text = "Alertas de interrupción y novedades",
-                                fontSize = 12.sp,
-                                color = Color.Gray
-                            )
-                        }
-                        Switch(
-                            checked = notificacionesEnabled,
-                            onCheckedChange = { notificacionesEnabled = it },
-                            colors = SwitchDefaults.colors(checkedThumbColor = SuperBrixNavyPrimary)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Reconocimiento de Voz Asistido",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = SuperBrixNavyPrimary
-                            )
-                            Text(
-                                text = "Habilitar comandos de voz rápida",
-                                fontSize = 12.sp,
-                                color = Color.Gray
-                            )
-                        }
-                        Switch(
-                            checked = vozAsistidaEnabled,
-                            onCheckedChange = { vozAsistidaEnabled = it },
-                            colors = SwitchDefaults.colors(checkedThumbColor = SuperBrixNavyPrimary)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Section 2: Sincronización y Red
-            Text(
-                text = "SINCRONIZACIÓN Y RED",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.Gray,
-                letterSpacing = 1.sp
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Estado de Sincronización:",
-                        fontSize = 12.sp,
-                        color = Color.Gray
-                    )
-                    Text(
-                        text = "🟢 En Línea • Sincronización Lista",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF2E7D32)
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Text(
-                        text = "Servidor de Producción:",
-                        fontSize = 12.sp,
-                        color = Color.Gray
-                    )
-                    Text(
-                        text = "FastAPI / SuperBrix IA Backend (Mock Local)",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF1E293B)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(28.dp))
-
-            // Action: Reset Demo Data
-            Button(
-                onClick = {
-                    Toast.makeText(context, "Datos de demostración restablecidos", Toast.LENGTH_SHORT).show()
-                },
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = SuperBrixNavyPrimary,
-                    contentColor = Color.White
-                )
+                    .widthIn(max = 600.dp)
+                    .fillMaxSize()
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Refresh, contentDescription = null)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Restablecer datos de demostración",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                // SECCIÓN 1: Interfaz y Tema
+                ConfigSectionTitle(title = "INTERFAZ Y VISUALIZACIÓN")
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = CardShape,
+                    colors = CardDefaults.cardColors(containerColor = BrixDarkSurface),
+                    border = BorderStroke(1.dp, BrixDarkBorder)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Default.Brightness4, contentDescription = null, tint = BrixCyanAccent)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "Tema Oscuro Industrial",
+                                        style = Typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = BrixTextPrimary
+                                    )
+                                    Text(
+                                        text = "Alto contraste para iluminación de planta",
+                                        style = Typography.bodySmall,
+                                        color = BrixTextSecondary
+                                    )
+                                }
+                            }
+                            Switch(
+                                checked = isDarkMode,
+                                onCheckedChange = { checked ->
+                                    coroutineScope.launch { prefsManager.setDarkMode(checked) }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = BrixVioletPrimary,
+                                    uncheckedThumbColor = BrixTextDisabled,
+                                    uncheckedTrackColor = BrixDarkSurfaceVariant
+                                )
+                            )
+                        }
+                    }
                 }
+
+                // SECCIÓN 2: Sincronización y Red en Tiempo Real
+                ConfigSectionTitle(title = "SINCRONIZACIÓN Y RED INDUSTRIAL")
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = CardShape,
+                    colors = CardDefaults.cardColors(containerColor = BrixDarkSurface),
+                    border = BorderStroke(1.dp, BrixDarkBorder)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        // Estado real de red
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(text = "Estado de Red en Planta:", style = Typography.labelSmall, color = BrixTextSecondary)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(10.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isOnline) BrixStateProducing else BrixStatePaused)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = if (isOnline) "En Línea (Conectado)" else "Fuera de Línea (Modo Local)",
+                                        style = Typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isOnline) BrixStateProducing else BrixStatePaused
+                                    )
+                                }
+                            }
+                            Icon(
+                                imageVector = if (isOnline) Icons.Default.Wifi else Icons.Default.WifiOff,
+                                contentDescription = null,
+                                tint = if (isOnline) BrixStateProducing else BrixStatePaused
+                            )
+                        }
+
+                        HorizontalDivider(color = BrixDarkBorder, thickness = 0.8.dp)
+
+                        // Servidor configurado
+                        Column {
+                            Text(text = "Endpoint de Backend:", style = Typography.labelSmall, color = BrixTextSecondary)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = AppConfig.BASE_URL,
+                                style = Typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = BrixCyanAccent
+                            )
+                        }
+
+                        HorizontalDivider(color = BrixDarkBorder, thickness = 0.8.dp)
+
+                        // Cola de eventos pendientes
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(text = "Eventos en Cola Local:", style = Typography.labelSmall, color = BrixTextSecondary)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (pendingSyncCount == 0) "Todos los eventos sincronizados" else "$pendingSyncCount eventos pendientes",
+                                    style = Typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (pendingSyncCount == 0) BrixTextPrimary else BrixOrangeAction
+                                )
+                            }
+
+                            Button(
+                                onClick = {
+                                    onManualSyncClick()
+                                    Toast.makeText(context, "Sincronizando eventos con el servidor...", Toast.LENGTH_SHORT).show()
+                                },
+                                shape = ButtonShape,
+                                colors = ButtonDefaults.buttonColors(containerColor = BrixVioletPrimary)
+                            ) {
+                                Icon(Icons.Default.CloudSync, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Sincronizar", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
+                // SECCIÓN 3: Alertas y Asistencia Operativa
+                ConfigSectionTitle(title = "ALERTAS Y ASISTENCIA DE PLANTA")
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = CardShape,
+                    colors = CardDefaults.cardColors(containerColor = BrixDarkSurface),
+                    border = BorderStroke(1.dp, BrixDarkBorder)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Default.Notifications, contentDescription = null, tint = BrixOrangeAction)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "Notificaciones de Seguridad",
+                                        style = Typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = BrixTextPrimary
+                                    )
+                                    Text(
+                                        text = "Alertas de emergencia y fallas críticas",
+                                        style = Typography.bodySmall,
+                                        color = BrixTextSecondary
+                                    )
+                                }
+                            }
+                            Switch(
+                                checked = notificationsEnabled,
+                                onCheckedChange = { checked ->
+                                    if (checked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    } else {
+                                        coroutineScope.launch { prefsManager.setNotificationsEnabled(checked) }
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = BrixVioletPrimary
+                                )
+                            )
+                        }
+
+                        HorizontalDivider(color = BrixDarkBorder, modifier = Modifier.padding(vertical = 12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = BrixCyanAccent)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "Reconocimiento de Voz",
+                                        style = Typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = BrixTextPrimary
+                                    )
+                                    Text(
+                                        text = "Habilitar micrófono para dictado de novedad",
+                                        style = Typography.bodySmall,
+                                        color = BrixTextSecondary
+                                    )
+                                }
+                            }
+                            Switch(
+                                checked = voiceEnabled,
+                                onCheckedChange = { checked ->
+                                    coroutineScope.launch { prefsManager.setVoiceEnabled(checked) }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = BrixVioletPrimary
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // SECCIÓN 4: Seguridad y Acerca de
+                ConfigSectionTitle(title = "SEGURIDAD Y ACERCA DE")
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = CardShape,
+                    colors = CardDefaults.cardColors(containerColor = BrixDarkSurface),
+                    border = BorderStroke(1.dp, BrixDarkBorder)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Security, contentDescription = null, tint = BrixCyanAccent, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Autenticación Criptográfica: SHA-256 Activa",
+                                style = Typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = BrixTextPrimary
+                            )
+                        }
+
+                        Text(
+                            text = "BRIX360 (SuperBrix) v${AppConfig.APP_VERSION_NAME} • Build ${AppConfig.APP_VERSION_CODE}",
+                            style = Typography.bodySmall,
+                            color = BrixTextSecondary
+                        )
+
+                        Text(
+                            text = "Eslogan: Tu aliado en la planta",
+                            style = Typography.bodySmall,
+                            color = BrixCyanAccent,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Acción Crítica: Restablecer Datos de Demostración con Confirmación
+                SecondaryButton(
+                    text = "Restablecer datos de demostración",
+                    onClick = { showResetConfirmDialog = true },
+                    icon = Icons.Default.Refresh
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }
+
+    // Diálogo de Confirmación para Restablecer Datos
+    if (showResetConfirmDialog) {
+        ConfirmDialog(
+            title = "¿Restablecer datos de demostración?",
+            message = "Esta acción reiniciará los registros temporales y volverá a los valores iniciales de prueba en planta. ¿Desea continuar?",
+            confirmText = "Sí, Restablecer",
+            dismissText = "Cancelar",
+            icon = Icons.Default.Refresh,
+            confirmColor = BrixOrangeAction,
+            onConfirm = {
+                showResetConfirmDialog = false
+                onResetDataClick()
+                Toast.makeText(context, "Datos de demostración restablecidos", Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { showResetConfirmDialog = false }
+        )
+    }
+}
+
+@Composable
+private fun ConfigSectionTitle(title: String) {
+    Text(
+        text = title,
+        style = Typography.labelSmall,
+        color = BrixTextSecondary,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 1.2.sp
+    )
 }

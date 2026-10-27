@@ -1,12 +1,12 @@
 package com.superbrix.ia.data.model
 
 data class Operario(
-    val id: String = "1",
-    val nombre: String = "Sara",
-    val cedula: String = "72234621",
-    val codigo: String = "OP-001",
+    val id: String = "",
+    val nombre: String = "",
+    val cedula: String = "",
+    val codigo: String = "",
     val rol: String = "Operario",
-    val area: String = "Ensamble 1",
-    val centroTrabajo: String = "CT-B",
+    val area: String = "CNC",
+    val centroTrabajo: String = "",
     val estado: String = "Activo"
 )

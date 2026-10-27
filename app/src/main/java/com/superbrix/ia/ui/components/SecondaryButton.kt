@@ -1,12 +1,7 @@
 package com.superbrix.ia.ui.components
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.*
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
@@ -18,9 +13,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.superbrix.ia.ui.theme.IndustrialBorderGray
-import com.superbrix.ia.ui.theme.IndustrialTextPrimary
+import com.superbrix.ia.ui.theme.*
 
+/**
+ * Botón secundario para BRIX360.
+ * Diseñado con borde industrial sutil, fondo de tarjeta y texto nítido.
+ */
 @Composable
 fun SecondaryButton(
     text: String,
@@ -35,21 +33,33 @@ fun SecondaryButton(
         modifier = modifier
             .fillMaxWidth()
             .height(56.dp),
-        shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, IndustrialBorderGray),
+        shape = ButtonShape,
+        border = BorderStroke(1.5.dp, BrixDarkBorder),
         colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = IndustrialTextPrimary
+            containerColor = BrixDarkSurface,
+            contentColor = BrixTextPrimary,
+            disabledContainerColor = BrixDarkSurfaceVariant,
+            disabledContentColor = BrixTextDisabled
         )
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
             if (icon != null) {
-                Icon(icon, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = BrixCyanAccent,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
             }
             Text(
                 text = text,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold
+                style = Typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = if (enabled) BrixTextPrimary else BrixTextDisabled
             )
         }
     }

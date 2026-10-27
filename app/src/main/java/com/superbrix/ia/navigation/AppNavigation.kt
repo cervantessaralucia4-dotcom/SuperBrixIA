@@ -9,6 +9,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.superbrix.ia.data.model.Operario
+import com.superbrix.ia.data.model.SyncStatus
 import com.superbrix.ia.ui.screens.AdminScreen
 import com.superbrix.ia.ui.screens.AnalizandoScreen
 import com.superbrix.ia.ui.screens.ConfiguracionScreen
@@ -24,6 +25,11 @@ import com.superbrix.ia.ui.screens.SplashScreen
 import com.superbrix.ia.viewmodel.EventoViewModel
 import com.superbrix.ia.viewmodel.HomeViewModel
 
+/**
+ * Grafo de Navegación de BRIX360.
+ * Conduce el flujo operativo industrial completo asegurando limpieza de backstack
+ * en cambios de sesión y cierre de operaciones.
+ */
 @Composable
 fun AppNavigation(
     navController: NavHostController = rememberNavController(),
@@ -83,7 +89,7 @@ fun AppNavigation(
             HomeScreen(
                 homeUiState = homeUiState,
                 onStartLaborClick = { navController.navigate(NavRoutes.SELECCION_OPERACION) },
-                onQuickStartClick = { 
+                onQuickStartClick = {
                     homeViewModel.startQuickScheduledLabor()
                     eventoViewModel.reportarEventoDirecto(
                         ordenCodigo = homeUiState.ordenActiva.codigo,
@@ -95,7 +101,7 @@ fun AppNavigation(
                     )
                 },
                 onReportInterruptionClick = { navController.navigate(NavRoutes.REPORTE_NOVEDAD) },
-                onResumeLaborClick = { 
+                onResumeLaborClick = {
                     homeViewModel.resumeLabor()
                     eventoViewModel.reportarEventoDirecto(
                         ordenCodigo = homeUiState.ordenActiva.codigo,
@@ -106,7 +112,7 @@ fun AppNavigation(
                         operarioNombre = homeUiState.operario.nombre
                     )
                 },
-                onFinishLaborClick = { 
+                onFinishLaborClick = {
                     homeViewModel.finishLabor()
                     eventoViewModel.reportarEventoDirecto(
                         ordenCodigo = homeUiState.ordenActiva.codigo,
@@ -150,15 +156,16 @@ fun AppNavigation(
             ReporteNovedadScreen(
                 ordenCodigo = homeUiState.ordenActiva.codigo,
                 maquinaNombre = homeUiState.maquinaActiva.nombre,
-                onSubmitReport = { descripcionText ->
+                onSubmitReport = { descripcionText, fotoUri ->
                     homeViewModel.markInterruption()
                     eventoViewModel.reportarNovedad(
                         descripcionText = descripcionText,
                         ordenCodigo = homeUiState.ordenActiva.codigo,
                         maquinaNombre = homeUiState.maquinaActiva.nombre,
-                        operarioNombre = homeUiState.operario.nombre
+                        operarioNombre = homeUiState.operario.nombre,
+                        fotoUri = fotoUri
                     ) {
-                        // Callback when analysis finishes
+                        // Navegación gestionada por el observador de estado
                     }
                     navController.navigate(NavRoutes.ANALIZANDO)
                 },
@@ -168,20 +175,40 @@ fun AppNavigation(
 
         // 6. Analizando Screen
         composable(NavRoutes.ANALIZANDO) {
-            LaunchedEffect(eventoUiState.isAnalyzing) {
+            LaunchedEffect(eventoUiState.isAnalyzing, eventoUiState.ultimoEventoReportado) {
                 if (!eventoUiState.isAnalyzing && eventoUiState.ultimoEventoReportado != null) {
                     navController.navigate(NavRoutes.RESULTADO_REPORTE) {
                         popUpTo(NavRoutes.ANALIZANDO) { inclusive = true }
                     }
                 }
             }
-            AnalizandoScreen()
+            AnalizandoScreen(
+                onRetry = {
+                    val ult = eventoUiState.ultimoEventoReportado
+                    if (ult != null) {
+                        eventoViewModel.reportarNovedad(
+                            descripcionText = ult.descripcion,
+                            ordenCodigo = ult.ordenProduccion,
+                            maquinaNombre = ult.maquina,
+                            operarioNombre = ult.operario
+                        ) {}
+                    }
+                },
+                onSaveFallback = {
+                    navController.navigate(NavRoutes.RESULTADO_REPORTE) {
+                        popUpTo(NavRoutes.ANALIZANDO) { inclusive = true }
+                    }
+                }
+            )
         }
 
         // 7. Resultado Reporte Screen
         composable(NavRoutes.RESULTADO_REPORTE) {
             ResultadoReporteScreen(
                 evento = eventoUiState.ultimoEventoReportado,
+                onCategoryCorrected = { nuevaCat ->
+                    eventoViewModel.corregirCategoriaUltimoEvento(nuevaCat)
+                },
                 onBackHomeClick = {
                     navController.popBackStack(NavRoutes.HOME, inclusive = false)
                 },
@@ -209,6 +236,9 @@ fun AppNavigation(
         composable(NavRoutes.DETALLE_EVENTO) {
             DetalleEventoScreen(
                 evento = eventoUiState.eventoSeleccionado,
+                onAnularEvento = { id, motivo ->
+                    eventoViewModel.anularEvento(id, motivo)
+                },
                 onBackClick = { navController.popBackStack() }
             )
         }
@@ -219,8 +249,9 @@ fun AppNavigation(
                 operario = homeUiState.operario,
                 onSettingsClick = { navController.navigate(NavRoutes.CONFIGURACION) },
                 onLogoutClick = {
+                    // Limpieza total del back stack al cerrar sesión
                     navController.navigate(NavRoutes.LOGIN) {
-                        popUpTo(NavRoutes.HOME) { inclusive = true }
+                        popUpTo(0) { inclusive = true }
                     }
                 },
                 onBackClick = { navController.popBackStack() }
@@ -229,7 +260,15 @@ fun AppNavigation(
 
         // 11. Configuracion Screen
         composable(NavRoutes.CONFIGURACION) {
+            val pendingCount = eventoUiState.eventosList.count { it.syncStatus == SyncStatus.PENDIENTE }
             ConfiguracionScreen(
+                pendingSyncCount = pendingCount,
+                onManualSyncClick = {
+                    eventoViewModel.sincronizarPendientes()
+                },
+                onResetDataClick = {
+                    eventoViewModel.limpiarHistorial()
+                },
                 onBackClick = { navController.popBackStack() }
             )
         }

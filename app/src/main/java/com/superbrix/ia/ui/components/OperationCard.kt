@@ -1,128 +1,178 @@
 package com.superbrix.ia.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Assignment
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.PrecisionManufacturing
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.superbrix.ia.ui.theme.IndustrialGreenActive
-import com.superbrix.ia.ui.theme.IndustrialRedAlert
-import com.superbrix.ia.ui.theme.SuperBrixNavyPrimary
+import com.superbrix.ia.ui.theme.*
 
+/**
+ * Tarjeta de Operación Industrial para BRIX360.
+ * Muestra los 4 datos operativos de piso: Orden de Producción (OP),
+ * Área de Trabajo, Operación y Máquina Asignada.
+ */
 @Composable
 fun OperationCard(
     ordenCodigo: String,
     maquinaNombre: String,
-    estadoText: String,
-    isLaborActive: Boolean = false,
+    areaNombre: String = "CNC",
+    operacionNombre: String = "Mecanizado",
     modifier: Modifier = Modifier
 ) {
-    val (badgeBg, badgeText, statusColor) = if (isLaborActive) {
-        Triple(IndustrialGreenActive.copy(alpha = 0.12f), IndustrialGreenActive, IndustrialGreenActive)
-    } else if (estadoText.contains("Interrup", true)) {
-        Triple(IndustrialRedAlert.copy(alpha = 0.12f), IndustrialRedAlert, IndustrialRedAlert)
-    } else {
-        Triple(Color(0xFFF1F5F9), Color.Gray, Color.Gray)
-    }
-
     Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .shadow(
-                elevation = 8.dp,
-                shape = RoundedCornerShape(16.dp),
-                ambientColor = Color.Black.copy(alpha = 0.05f),
-                spotColor = Color.Black.copy(alpha = 0.05f)
-            ),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        modifier = modifier.fillMaxWidth(),
+        shape = CardShape,
+        colors = CardDefaults.cardColors(containerColor = BrixDarkSurface),
+        border = BorderStroke(1.5.dp, BrixDarkBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Row(modifier = Modifier.height(IntrinsicSize.Min)) {
-            // Status Border Indicator
-            Box(
-                modifier = Modifier
-                    .width(6.dp)
-                    .fillMaxHeight()
-                    .background(statusColor)
-            )
-            
-            Column(modifier = Modifier.padding(16.dp).weight(1f)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    text = "INFORMACIÓN DE OPERACIÓN",
-                    fontSize = 12.sp,
+                    text = "ESTACIÓN Y LABOR ACTIVA",
+                    style = Typography.labelSmall,
+                    color = BrixTextSecondary,
                     fontWeight = FontWeight.Bold,
-                    color = Color.Gray,
-                    letterSpacing = 1.sp
+                    letterSpacing = 1.2.sp
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                // Badge de Área
+                Surface(
+                    shape = ChipShape,
+                    color = BrixVioletPrimary.copy(alpha = 0.18f),
+                    border = BorderStroke(1.dp, BrixVioletPrimary.copy(alpha = 0.4f))
                 ) {
-                    Column {
-                        Text(
-                            text = "Orden de producción:",
-                            fontSize = 12.sp,
-                            color = Color.Gray
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LocationOn,
+                            contentDescription = null,
+                            tint = BrixCyanAccent,
+                            modifier = Modifier.size(13.dp)
                         )
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = ordenCodigo,
-                            fontSize = 18.sp,
+                            text = areaNombre,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = SuperBrixNavyPrimary
-                        )
-                    }
-
-                    Column {
-                        Text(
-                            text = "Máquina:",
-                            fontSize = 12.sp,
-                            color = Color.Gray
-                        )
-                        Text(
-                            text = maquinaNombre,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = SuperBrixNavyPrimary
+                            color = BrixCyanAccent
                         )
                     }
                 }
+            }
 
-                Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-                Box(
+            // Grid de 2x2 para OP, Máquina, Área y Operación
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Columna 1: OP
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .background(badgeBg, shape = RoundedCornerShape(8.dp))
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .weight(1f)
+                        .background(BrixDarkSurfaceVariant, shape = InputShape)
+                        .padding(12.dp)
                 ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Assignment,
+                            contentDescription = null,
+                            tint = BrixCyanAccent,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "ORDEN",
+                            style = Typography.labelSmall,
+                            color = BrixTextSecondary
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Estado actual: $estadoText",
-                        color = badgeText,
+                        text = ordenCodigo.ifBlank { "Sin asignar" },
+                        style = Typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
+                        color = BrixTextPrimary
                     )
                 }
+
+                // Columna 2: Máquina
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(BrixDarkSurfaceVariant, shape = InputShape)
+                        .padding(12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.PrecisionManufacturing,
+                            contentDescription = null,
+                            tint = BrixOrangeAction,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "MÁQUINA",
+                            style = Typography.labelSmall,
+                            color = BrixTextSecondary
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = maquinaNombre.ifBlank { "No aplica" },
+                        style = Typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = BrixTextPrimary,
+                        maxLines = 1
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Operación específica
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(BrixDarkSurfaceVariant, shape = InputShape)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Operación en proceso:",
+                    style = Typography.bodySmall,
+                    color = BrixTextSecondary
+                )
+                Text(
+                    text = operacionNombre,
+                    style = Typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = BrixCyanAccent
+                )
             }
         }
     }

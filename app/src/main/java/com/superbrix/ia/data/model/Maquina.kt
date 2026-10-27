@@ -1,8 +1,8 @@
 package com.superbrix.ia.data.model
 
 data class Maquina(
-    val id: String = "1",
-    val nombre: String = "Fresadora 01",
-    val tipo: String = "Fresadora",
+    val id: String = "",
+    val nombre: String = "",
+    val tipo: String = "",
     val estado: String = "Operativa"
 )

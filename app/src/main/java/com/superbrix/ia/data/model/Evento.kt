@@ -22,6 +22,12 @@ object IACategorias {
     )
 }
 
+enum class SyncStatus {
+    PENDIENTE,
+    ENVIADO,
+    ERROR
+}
+
 data class Evento(
     val id: String,
     val fecha: String,
@@ -30,10 +36,17 @@ data class Evento(
     val operario: String = "Sara",
     val ordenProduccion: String = "OP-001",
     val maquina: String = "Fresadora 01",
-    val tipoEvento: String, // e.g. "Inicio de labor", "Interrupción"
+    val tipoEvento: String, // e.g. "INICIO_LABOR", "Interrupción", "REANUDACION", "FIN_LABOR"
     val descripcion: String,
-    val categoria: String, // One of IACategorias
+    val categoria: String, // Uno de IACategorias
     val duracionMinutos: Int = 0,
     val duracionSegundos: Int = 0,
-    val confianzaIA: String = "94%"
+    val confianzaIA: String = "94%",
+    val categoriaCorregida: Boolean = false,
+    val categoriaOriginalIA: String? = null,
+    val syncStatus: SyncStatus = SyncStatus.PENDIENTE,
+    val fotoUri: String? = null,
+    val esNovedadSeguridad: Boolean = false,
+    val anulado: Boolean = false,
+    val motivoAnulacion: String? = null
 )

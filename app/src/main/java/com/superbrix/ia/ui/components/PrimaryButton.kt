@@ -1,16 +1,7 @@
 package com.superbrix.ia.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -25,35 +16,46 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.superbrix.ia.ui.theme.SuperBrixNavyPrimary
-import com.superbrix.ia.ui.theme.SuperBrixBlueAccent
+import com.superbrix.ia.ui.theme.*
 
+/**
+ * Botón primario industrial para BRIX360.
+ *
+ * Características clave para uso en planta:
+ * - Área táctil extendida de mínimo 58-62 dp (operación cómoda con guantes).
+ * - Acento visual con el degradado del logo (violeta #7C3AED -> cian #00C2FF)
+ *   o colores semánticos de acción crítica (naranja #FF8A00, verde #1DB954).
+ * - Tipografía Inter Bold y soporte de iconos vectoriales Material.
+ */
 @Composable
 fun PrimaryButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
-    containerColor: Color = SuperBrixNavyPrimary,
+    containerColor: Color? = null,
+    customBrush: Brush? = null,
     contentColor: Color = Color.White,
     enabled: Boolean = true
 ) {
-    val buttonShape = RoundedCornerShape(14.dp)
-    
-    val isOrange = containerColor == SuperBrixBlueAccent
-    val brush = if (enabled) {
-        if (isOrange) {
-            Brush.horizontalGradient(listOf(Color(0xFFFF9D2E), Color(0xFFFF7A00)))
-        } else if (containerColor == SuperBrixNavyPrimary) {
-            Brush.horizontalGradient(listOf(Color(0xFF163E70), Color(0xFF081C33)))
-        } else {
-            Brush.horizontalGradient(listOf(containerColor, containerColor))
-        }
-    } else {
-        Brush.horizontalGradient(listOf(Color.LightGray, Color.Gray))
+    val buttonShape = ButtonShape
+
+    val effectiveBrush = when {
+        !enabled -> Brush.horizontalGradient(listOf(Color(0xFF334155), Color(0xFF1E293B)))
+        customBrush != null -> customBrush
+        containerColor == BrixOrangeAction -> BrixOrangeGradient
+        containerColor == BrixStateProducing -> Brush.horizontalGradient(listOf(Color(0xFF22C55E), Color(0xFF16A34A)))
+        containerColor == BrixStateCritical -> Brush.horizontalGradient(listOf(Color(0xFFEF4444), Color(0xFFDC2626)))
+        containerColor != null -> Brush.horizontalGradient(listOf(containerColor, containerColor))
+        else -> BrixPrimaryGradient
     }
-    
-    val shadowColor = if (isOrange) Color(0xFFFF8A00).copy(alpha = 0.5f) else containerColor.copy(alpha = 0.4f)
+
+    val shadowColor = when (containerColor) {
+        BrixOrangeAction -> BrixOrangeAction.copy(alpha = 0.35f)
+        BrixStateProducing -> BrixStateProducing.copy(alpha = 0.35f)
+        BrixStateCritical -> BrixStateCritical.copy(alpha = 0.35f)
+        else -> BrixVioletPrimary.copy(alpha = 0.4f)
+    }
 
     Button(
         onClick = onClick,
@@ -62,7 +64,7 @@ fun PrimaryButton(
             .fillMaxWidth()
             .height(60.dp)
             .shadow(
-                elevation = if (enabled) 12.dp else 0.dp,
+                elevation = if (enabled) 10.dp else 0.dp,
                 shape = buttonShape,
                 ambientColor = shadowColor,
                 spotColor = shadowColor
@@ -73,24 +75,33 @@ fun PrimaryButton(
             containerColor = Color.Transparent,
             contentColor = contentColor,
             disabledContainerColor = Color.Transparent,
-            disabledContentColor = Color.White
+            disabledContentColor = BrixTextDisabled
         )
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(brush),
+                .background(effectiveBrush),
             contentAlignment = Alignment.Center
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            ) {
                 if (icon != null) {
-                    Icon(icon, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
                 }
                 Text(
                     text = text,
-                    fontSize = 17.sp,
+                    style = Typography.titleMedium,
                     fontWeight = FontWeight.Bold,
+                    color = contentColor,
                     letterSpacing = 0.5.sp
                 )
             }

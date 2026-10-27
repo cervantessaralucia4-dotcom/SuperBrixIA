@@ -1,3 +1,15 @@
 <resources>
     <string name="app_name">BRIX360</string>
+    <string name="app_slogan">Tu aliado en la planta</string>
+    <string name="login_title">Control Operativo</string>
+    <string name="biometric_button_label">Entrar con huella o rostro</string>
+    <string name="biometric_prompt_title">Ingreso a BRIX360</string>
+    <string name="biometric_prompt_negative">Cancelar</string>
+    <string name="action_start_labor">Iniciar labor</string>
+    <string name="action_report_interruption">Reportar interrupción</string>
+    <string name="action_resume_labor">Reanudar labor</string>
+    <string name="action_finish_labor">Finalizar labor</string>
+    <string name="action_history">Historial</string>
+    <string name="action_profile">Perfil</string>
+    <string name="action_settings">Configuración</string>
 </resources>
